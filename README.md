@@ -52,7 +52,7 @@ spec:
   serviceAccountName: magic-service-account
   containers:
   - name: proxy
-    image: gcr.io/igsong-oss/docker-credential-magic-proxy/proxy:latest
+    image: ghcr.io/ingwonsong/docker-credential-magic-proxy/proxy:latest
     args:
     - "--proxy-port"
     - "5000"
