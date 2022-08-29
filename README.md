@@ -6,6 +6,8 @@
 The credentials in `$HOME/.docker/config.json` or `$DOCKER_CONFIG/config.json` will be used for generating the authentication header.
 In addition, the docker credential helpers of GCR, ECR, and ACR are included to support the repositories.
 
+Please note that the name of this project is inspired from https://github.com/docker-credential-magic/docker-credential-magic.
+
 ## Build
 
 ```bash
