@@ -57,12 +57,13 @@ spec:
     - "--proxy-port"
     - "5000"
 EOF
-
-kubectl port-forward -n magic docker-credential-magic-proxy 5000:5000
 ```
 
 ### Run Crane without local credentials
 
 ```
+# Port forwarding to local address.
+kubectl port-forward -n magic docker-credential-magic-proxy 5000:5000
+# DOCKER_CONFIG is given here to ignore ~/.docker/config.json
 DOCKER_CONFIG=/tmp crane ls localhost:5000/forwardto/gcr.io/YOUR-PRIVATE-REPO
 ```
