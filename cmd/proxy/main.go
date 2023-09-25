@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -25,7 +26,10 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/ingwonsong/docker-credential-magic-proxy/pkg/proxy"
+	"github.com/robertcopezd/docker-credential-magic-proxy/internal/config"
+	"github.com/robertcopezd/docker-credential-magic-proxy/pkg/proxy"
+
+	"github.com/DataDog/datadog-go/v5/statsd"
 )
 
 var (
@@ -36,11 +40,27 @@ var (
 func main() {
 	flag.Parse()
 
+	c, err := config.LoadConfig(os.Environ())
+	if err != nil {
+		log.Fatalf("couldn't load config, exiting (%v)", err)
+		os.Exit(-1)
+	}
+	c.ProxyPort = *proxyPort
+	c.AllowHTTP = *allowHTTP
+
+	statsd, err := statsd.New(fmt.Sprintf("%s:%d", c.StatsDHost, c.StatsDPort), statsd.WithNamespace(c.MetricsPrefix))
+	if err != nil {
+		log.Fatalf("error getting new statsd client: %v", err)
+		os.Exit(-1)
+	}
+
+	statsd.Incr("startup", nil, 1)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		s := &http.Server{
-			Addr:        ":" + strconv.Itoa(*proxyPort),
-			Handler:     proxy.NewHandler(*allowHTTP),
+			Addr:        ":" + strconv.Itoa(c.ProxyPort),
+			Handler:     proxy.NewHandler(c, statsd),
 			BaseContext: func(_ net.Listener) context.Context { return ctx },
 		}
 		if err := s.ListenAndServe(); err != http.ErrServerClosed {
@@ -53,5 +73,8 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT)
 	<-sigChan
 	cancel()
+
+	statsd.Incr("shutdown", nil, 1)
+
 	os.Exit(0)
 }

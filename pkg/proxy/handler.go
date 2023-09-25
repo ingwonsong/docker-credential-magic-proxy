@@ -23,21 +23,26 @@ import (
 
 	"istio.io/pkg/log"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
+
+	"github.com/robertcopezd/docker-credential-magic-proxy/internal/config"
+	"github.com/robertcopezd/docker-credential-magic-proxy/pkg/common"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
-	"github.com/ingwonsong/docker-credential-magic-proxy/pkg/common"
 )
 
 var regex = regexp.MustCompile(`/v2/forwardto/(?P<Registry>[^/]+)/(?P<Repository>.+)/(?P<Resource>(manifests|blobs|tags))/(?P<Identifier>.+)$`)
 
 type proxy struct {
-	allowHTTP bool
+	config *config.Data
+	dd     *statsd.Client
 }
 
-func NewHandler(allowHTTP bool) http.Handler {
-	return &proxy{allowHTTP: allowHTTP}
+func NewHandler(c *config.Data, dd *statsd.Client) http.Handler {
+	return &proxy{config: c, dd: dd}
 }
 
 // returns upstream repository and path.
@@ -85,6 +90,11 @@ func (p *proxy) getClient(ctx context.Context, repository name.Repository) (*htt
 }
 
 func (p *proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
+	//statsd, err := statsd.New(fmt.Sprintf("%s:%d", c.StatsDHost, c.StatsDPort))
+	//if err != nil {
+	//	return nil, err
+	//}
+
 	path := req.URL.Path
 
 	if path == "/v2" || path == "/v2/" {
@@ -98,7 +108,7 @@ func (p *proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	repository, upstreamPath, err := parsePath(path, p.allowHTTP)
+	repository, upstreamPath, err := parsePath(path, p.config.AllowHTTP)
 	if err == nil {
 		// If we got http[s]://{server}/forwardto/{host}/{...} , rewrite it http[s]://{host}/{...}
 		host := repository.Registry.String()
@@ -124,6 +134,7 @@ func (p *proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		http.Error(wr, err.Error(), http.StatusBadGateway)
 		log.Errorf("failed to create client: %v", err)
+		p.dd.Incr("failure", []string{"error:create_client"}, 1)
 		return
 	}
 
@@ -131,6 +142,7 @@ func (p *proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		http.Error(wr, "Server Error", http.StatusBadGateway)
 		log.Errorf("server error: %v", err)
+		p.dd.Incr("failure", []string{"error:server_error"}, 1)
 		return
 	}
 	defer resp.Body.Close()
@@ -139,4 +151,10 @@ func (p *proxy) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 	common.CopyHeader(wr.Header(), resp.Header)
 	wr.WriteHeader(resp.StatusCode)
 	io.Copy(wr, resp.Body)
+
+	if resp.StatusCode == 200 {
+		p.dd.Incr("success", nil, 1)
+	} else {
+		p.dd.Incr("failure", []string{"error:not200"}, 1)
+	}
 }
